@@ -9,16 +9,17 @@ int main() {
 
     SDL_Window* window = SDL_CreateWindow("Tetris!", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
     SDL_Surface* surface = SDL_GetWindowSurface(window);
-    //SDL_Surface* new_surface = surface;
-    
+
+    SDL_Rect rect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
+    SDL_FillRect(surface, &rect, 0x000000);
     ShapeType type = getRandomType();
 
-    Tetromino* fallingTetromino = createTetromino(type, (Point) {RIGHT_BORDER / CELL_WIDTH / 2, 0});
+    Tetromino* fallingTetromino = createTetromino(type, (Point) {SCREEN_WIDTH/ 2, 0});
     uint32_t lastTime = SDL_GetTicks();
     float timer = 0.0f;
     float lockDelayTimer = 0.0f;
     bool startLockTimer = false;
-    paintTetromino(fallingTetromino, surface, window);
+    paintTetromino(fallingTetromino, surface);
     while (isRunning) {
         uint32_t frameStart = SDL_GetTicks();
         float deltaTime = (frameStart - lastTime) / 1000.0f;
@@ -27,18 +28,31 @@ int main() {
         if (startLockTimer) {
             lockDelayTimer += deltaTime;
             if (lockDelayTimer * 1000 >= LOCK_DELAY) {
+                lockIn(fallingTetromino);
                 ShapeType type = getRandomType();
-                fallingTetromino = createTetromino(type, (Point) {RIGHT_BORDER / CELL_WIDTH / 2, 0});
+                fallingTetromino = createTetromino(type, (Point) {SCREEN_WIDTH / 2, 0});
                 startLockTimer = false;
                 lockDelayTimer = 0.0f;
-                //surface = SDL_ConvertSurface(surface, surface->format, 0);
             }
         }
+
+        if (hasLanded(fallingTetromino)) {
+            startLockTimer = true;
+        } 
+        
         while(SDL_PollEvent(&ev) != 0) {
             switch (ev.type) {
-                case SDL_KEYDOWN:
-                    moveTetromino(ev.key.keysym.sym, fallingTetromino);
+                case SDL_KEYDOWN: {
+                    bool hardDrop = moveTetromino(ev.key.keysym.sym, fallingTetromino);
+                    if (hardDrop) {
+                        lockIn(fallingTetromino);
+                        ShapeType type = getRandomType();
+                        fallingTetromino = createTetromino(type, (Point) {SCREEN_WIDTH / 2, 0});
+                        startLockTimer = false;
+                        lockDelayTimer = 0.0f;
+                    }
                     break;
+                }
                 case SDL_QUIT:
                     isRunning = false;
                     break;
@@ -51,12 +65,14 @@ int main() {
             fallTetromino(fallingTetromino);
             timer = 0.0f;            
         }
-        if (hasLanded(fallingTetromino)) startLockTimer = true;
-
+        
+        clearFullRows();
         //UPDATE SCREEN
-        SDL_Rect rect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
         SDL_FillRect(surface, &rect, 0x000000);
-        paintTetromino(fallingTetromino, surface, window);
+        paintBoard(surface);
+        paintTetromino(fallingTetromino, surface);
+        SDL_UpdateWindowSurface(window);
+
 
         if (FRAME_DELAY > frameTime) {
             SDL_Delay(FRAME_DELAY - frameTime);
