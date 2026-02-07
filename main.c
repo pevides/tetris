@@ -6,6 +6,7 @@ int main() {
     bool isRunning = true;
     SDL_Event ev;
     int level = 1;
+    int clearedRows = 0;
 
     SDL_Window* window = SDL_CreateWindow("Tetris!", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
     SDL_Surface* surface = SDL_GetWindowSurface(window);
@@ -29,6 +30,7 @@ int main() {
             lockDelayTimer += deltaTime;
             if (lockDelayTimer * 1000 >= LOCK_DELAY) {
                 lockIn(fallingTetromino);
+                printBoard();
                 ShapeType type = getRandomType();
                 fallingTetromino = createTetromino(type, (Point) {SCREEN_WIDTH / 2, 0});
                 startLockTimer = false;
@@ -38,7 +40,10 @@ int main() {
 
         if (hasLanded(fallingTetromino)) {
             startLockTimer = true;
-        } 
+        } else {
+            startLockTimer = false;
+            lockDelayTimer = 0.0f;
+        }
         
         while(SDL_PollEvent(&ev) != 0) {
             switch (ev.type) {
@@ -46,6 +51,7 @@ int main() {
                     bool hardDrop = moveTetromino(ev.key.keysym.sym, fallingTetromino);
                     if (hardDrop) {
                         lockIn(fallingTetromino);
+                        printBoard();
                         ShapeType type = getRandomType();
                         fallingTetromino = createTetromino(type, (Point) {SCREEN_WIDTH / 2, 0});
                         startLockTimer = false;
@@ -66,7 +72,11 @@ int main() {
             timer = 0.0f;            
         }
         
-        clearFullRows();
+        clearedRows += clearFullRows();
+        if (clearedRows >= level * ROWS_TO_LEVEL_UP) {
+            level++;
+        }
+        
         //UPDATE SCREEN
         SDL_FillRect(surface, &rect, 0x000000);
         paintBoard(surface);

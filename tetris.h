@@ -8,13 +8,14 @@
 
 
 #define CELL_WIDTH 25
-#define SCREEN_WIDTH (10 * CELL_WIDTH)
-#define SCREEN_HEIGHT (20 * CELL_WIDTH)
-#define BOTTOM_BORDER SCREEN_HEIGHT
-#define RIGHT_BORDER SCREEN_WIDTH
+#define BOARD_ROWS 20
+#define BOARD_COLS 10
+#define SCREEN_WIDTH (BOARD_COLS * CELL_WIDTH)
+#define SCREEN_HEIGHT (BOARD_ROWS * CELL_WIDTH)
 #define TARGET_FPS 60
 #define FRAME_DELAY (1000 / TARGET_FPS)
 #define LOCK_DELAY 500 //ms
+#define ROWS_TO_LEVEL_UP 10
 
 #define I_COLOR 0x00FFFF
 #define J_COLOR 0x0000FF
@@ -107,6 +108,17 @@ const TetrominoDef SHAPE_REGISTRY[SHAPE_COUNT] = {
 
 int bag[SHAPE_COUNT];
 int bagIndex = SHAPE_COUNT;
+uint32_t board[BOARD_ROWS][BOARD_COLS] = {0};
+
+enum { CELL_EMPTY = 0, CELL_SHAPE_OFFSET = 1 };
+
+static inline bool isCellOccupied(int row, int col) {
+    return board[row][col] != CELL_EMPTY;
+}
+
+static inline uint32_t toCellValue(ShapeType type) {
+    return (uint32_t)type + CELL_SHAPE_OFFSET;
+}
 
 void shuffleBag() {
     for (int i = 0; i < SHAPE_COUNT; i++) {
@@ -114,7 +126,7 @@ void shuffleBag() {
     }
     srand(SDL_GetTicks());
     for (int i = SHAPE_COUNT - 1; i > 0; i--) {
-        int j = rand() % (SHAPE_COUNT + 1);
+        int j = rand() % SHAPE_COUNT;
         int temp = bag[i];
         bag[i] = bag[j];
         bag[j] = temp;
@@ -131,7 +143,7 @@ double getTimeToFall(int level) {
     return pow((0.8 - ((level - 1) *0.007)), level -1);
 }
 
-void paintTetromino(Tetromino* tetromino, SDL_Surface* surface, SDL_Window *window) {
+void paintTetromino(Tetromino* tetromino, SDL_Surface* surface) {
     uint32_t color = SHAPE_REGISTRY[tetromino->type].color;
 
     for (int i = 0; i < 4; i++) {
@@ -142,7 +154,6 @@ void paintTetromino(Tetromino* tetromino, SDL_Surface* surface, SDL_Window *wind
         };
         SDL_FillRect(surface, &rr, color);
     }
-    SDL_UpdateWindowSurface(window);
 }
 
 Tetromino* createTetromino(ShapeType type, Point coordinates) {
@@ -155,14 +166,26 @@ Tetromino* createTetromino(ShapeType type, Point coordinates) {
     return t;  
 }
 
+void lockIn(Tetromino* t) {
+    int gridX = t->coordinates.x / CELL_WIDTH;
+    int gridY = t->coordinates.y / CELL_WIDTH;
+    int col, row;
+    for (int i = 0; i < 4; i++) {
+        col = (*t->shape)[i].x + gridX;
+        row = (*t->shape)[i].y + gridY;
+        board[row][col] = toCellValue(t->type);
+    }
+}
+
 bool isValidMove(Tetromino* t) {
     Point coordinates = t->coordinates;
     const Point (*shape)[4] = t->shape;
     for (int i = 0; i < 4; i++) {
-        int pixelX = coordinates.x + ((*shape)[i].x * CELL_WIDTH);
-        int pixelY = coordinates.y + ((*shape)[i].y * CELL_WIDTH);
+        int gridX = coordinates.x  / CELL_WIDTH + (*shape)[i].x;
+        int gridY = coordinates.y  / CELL_WIDTH + (*shape)[i].y;
 
-        if (pixelX < 0 || pixelX >= RIGHT_BORDER || pixelY >= BOTTOM_BORDER || pixelY < 0) return false; 
+        if (gridX < 0 || gridX >= BOARD_COLS || gridY >= BOARD_ROWS || gridY < 0) return false;
+        if (isCellOccupied(gridY, gridX)) return false;
     }
     return true;
 }
@@ -176,16 +199,18 @@ bool hasLanded(Tetromino* t) {
 
 void fallTetromino(Tetromino* t) {
     int oldY = t->coordinates.y;
-    if (t->coordinates.y < BOTTOM_BORDER) t->coordinates.y += CELL_WIDTH;
+    if (t->coordinates.y / CELL_WIDTH < BOARD_ROWS) t->coordinates.y += CELL_WIDTH;
     if (!isValidMove(t)) t->coordinates.y = oldY;
 }
 
-void moveTetromino(Sint32 key, Tetromino* t) {
+bool moveTetromino(Sint32 key, Tetromino* t) {
 
     int oldX = t->coordinates.x;
     int oldY = t->coordinates.y;
     int oldRot = t->rotationIndex;
     const Point (*oldShape)[4] = t->shape;
+
+    bool hardDrop = false;
 
     if (key == SDLK_SPACE) {
         while (true) {
@@ -195,6 +220,7 @@ void moveTetromino(Sint32 key, Tetromino* t) {
                 break;
             }
         }
+        hardDrop = true;
     } 
     else if (key == SDLK_UP) {
         const TetrominoDef *def = &SHAPE_REGISTRY[t->type];
@@ -204,7 +230,6 @@ void moveTetromino(Sint32 key, Tetromino* t) {
 
     } else if (key == SDLK_DOWN) {
         t->coordinates.y += CELL_WIDTH;
-        if (!isValidMove(t)) t->coordinates.y -= CELL_WIDTH;
     }
     else {
         if (key == SDLK_RIGHT) t->coordinates.x += CELL_WIDTH;
@@ -218,6 +243,82 @@ void moveTetromino(Sint32 key, Tetromino* t) {
         t->rotationIndex = oldRot;
         t->shape = oldShape;
     }
+
+    return hardDrop;
+}
+void clearRow(int rowToClear) {
+    if (rowToClear > BOARD_ROWS) rowToClear = BOARD_ROWS - 1;
+
+    for (int row = rowToClear; row > 0 ; row--) {
+        for (int col = 0; col < BOARD_COLS; col++) {
+            board[row][col] = board[row - 1][col];
+        }
+    }
+    for (int col = 0; col < BOARD_COLS; col++) {
+            board[0][col] = CELL_EMPTY;
+        }
+}
+void paintBoard(SDL_Surface* surface) {
+    for (int row = 0; row < BOARD_ROWS; row++) {
+        for (int col = 0; col < BOARD_COLS; col++) {
+            uint32_t cell = board[row][col];
+            if (cell == CELL_EMPTY) continue;
+
+            ShapeType type = (ShapeType)(cell - CELL_SHAPE_OFFSET);
+            uint32_t color = SHAPE_REGISTRY[type].color;
+            SDL_Rect rr = {
+                col * CELL_WIDTH,
+                row * CELL_WIDTH,
+                CELL_WIDTH,
+                CELL_WIDTH
+            };
+            SDL_FillRect(surface, &rr, color);
+        }
+    }
+}
+
+void printBoard() {
+    for (int row = 0; row < BOARD_ROWS; row++) {
+        for (int col = 0; col < BOARD_COLS; col++) {
+            uint32_t cell = board[row][col];
+            char ch = '.';
+            if (cell != CELL_EMPTY) {
+                ShapeType type = (ShapeType)(cell - CELL_SHAPE_OFFSET);
+                switch (type) {
+                    case SHAPE_I: ch = 'I'; break;
+                    case SHAPE_J: ch = 'J'; break;
+                    case SHAPE_L: ch = 'L'; break;
+                    case SHAPE_O: ch = 'O'; break;
+                    case SHAPE_S: ch = 'S'; break;
+                    case SHAPE_Z: ch = 'Z'; break;
+                    case SHAPE_T: ch = 'T'; break;
+                    default: ch = '?'; break;
+                }
+            }
+            putchar(ch);
+        }
+        putchar('\n');
+    }
+    putchar('\n');
+    fflush(stdout);
+}
+
+int clearFullRows() {
+    int numberOfRowsToClear = 0;
+    for (int i = BOARD_ROWS - 1; i >= 0; i --) {
+        bool rowIsFull = true;
+        for (int j = 0; j < BOARD_COLS; j++) {
+            if (!isCellOccupied(i, j)) {
+                rowIsFull = false;
+                break;
+            }
+        }
+        if (rowIsFull) {
+            clearRow(i);
+            numberOfRowsToClear++;
+        }
+    }
+    return numberOfRowsToClear;
 }
 
 #endif 
