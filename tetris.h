@@ -203,38 +203,44 @@ void fallTetromino(Tetromino* t) {
     if (!isValidMove(t)) t->coordinates.y = oldY;
 }
 
-bool moveTetromino(Sint32 key, Tetromino* t) {
+int hardDrop(Tetromino* t) {
+    int cellsDropped = 0;
+    while (true) {
+        t->coordinates.y += CELL_WIDTH;
+        cellsDropped++;
+        if (!isValidMove(t)) {
+            t->coordinates.y -= CELL_WIDTH;
+            cellsDropped--;
+            return cellsDropped * 2;
+        }
+    }
+}
+
+int softDrop(Tetromino* t) {
+    t->coordinates.y += CELL_WIDTH;
+    if (!isValidMove(t)) {
+        t->coordinates.y -= CELL_WIDTH;
+        return 0;
+    }
+    return 1;
+}
+
+void moveTetromino(Sint32 key, Tetromino* t) {
 
     int oldX = t->coordinates.x;
     int oldY = t->coordinates.y;
     int oldRot = t->rotationIndex;
     const Point (*oldShape)[4] = t->shape;
 
-    bool hardDrop = false;
-
-    if (key == SDLK_SPACE) {
-        while (true) {
-            t->coordinates.y += CELL_WIDTH;
-            if (!isValidMove(t)) {
-                t->coordinates.y -= CELL_WIDTH;
-                break;
-            }
-        }
-        hardDrop = true;
-    } 
-    else if (key == SDLK_UP) {
+    if (key == SDLK_UP) {
         const TetrominoDef *def = &SHAPE_REGISTRY[t->type];
         if (t->rotationIndex < def->maxRotations - 1) t->rotationIndex++;
         else t->rotationIndex = 0;
         t->shape = &def->rotations[t->rotationIndex];
 
-    } else if (key == SDLK_DOWN) {
-        t->coordinates.y += CELL_WIDTH;
     }
-    else {
-        if (key == SDLK_RIGHT) t->coordinates.x += CELL_WIDTH;
-        if (key == SDLK_LEFT) t->coordinates.x -= CELL_WIDTH;
-    }
+    else if (key == SDLK_RIGHT) t->coordinates.x += CELL_WIDTH;
+    else if (key == SDLK_LEFT) t->coordinates.x -= CELL_WIDTH;
 
     if (!isValidMove(t)) {
          
@@ -243,9 +249,8 @@ bool moveTetromino(Sint32 key, Tetromino* t) {
         t->rotationIndex = oldRot;
         t->shape = oldShape;
     }
-
-    return hardDrop;
 }
+
 void clearRow(int rowToClear) {
     if (rowToClear > BOARD_ROWS) rowToClear = BOARD_ROWS - 1;
 
